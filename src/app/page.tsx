@@ -1,6 +1,53 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import CheckInForm, { type DrawingEntry } from "@/components/check-in-form";
+
+const STORAGE_KEY = "drawn-today-entry";
 
 export default function Home() {
+  const [entry, setEntry] = useState<DrawingEntry | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [storageError, setStorageError] = useState("");
+
+  useEffect(() => {
+    try {
+      const savedEntry = localStorage.getItem(STORAGE_KEY);
+
+      if (savedEntry) {
+        const parsedEntry = JSON.parse(savedEntry);
+
+        if (
+          parsedEntry !== null &&
+          typeof parsedEntry === "object" &&
+          typeof parsedEntry.followedPrompt === "boolean" &&
+          typeof parsedEntry.customTopic === "string" &&
+          Array.isArray(parsedEntry.tools) &&
+          parsedEntry.tools.every((tool: unknown) => typeof tool === "string")
+        ) {
+          setEntry(parsedEntry);
+        } else {
+          setStorageError("The saved check-in could not be loaded.");
+        }
+      }
+    } catch {
+      setStorageError("The saved check-in could not be loaded.");
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
+  function handleSave(nextEntry: DrawingEntry) {
+    setEntry(nextEntry);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntry));
+      setStorageError("");
+    } catch {
+      setStorageError("Your check-in is visible, but could not be saved in this browser.");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <main className="mx-auto max-w-3xl space-y-8 px-6 py-12">
@@ -26,60 +73,24 @@ export default function Home() {
 
           {/* Check-in form goes here */}
           <section
-            aria-labelledby="check-in-form"
+            aria-labelledby="check-in-heading"
             className="rounded-b-xl border border-zinc-200 bg-white p-6"
           >
-            <h2 className="text-sm font-medium text-zinc-500">Record today's drawing</h2>
+            <h2 id="check-in-heading" className="text-sm font-medium text-zinc-500">
+              Record today&apos;s drawing
+            </h2>
 
-            <form action="" className="mt-4 space-y-5">
-              <label className="flex items-center gap-3">
-                <input type="checkbox" name="followedPrompt" defaultChecked className="h-4 w-4" />
-                <span>I followed the prompt.</span>
-              </label>
+            {isLoaded ? (
+              <CheckInForm onSave={handleSave} />
+            ) : (
+              <p className="mt-4 text-sm text-zinc-500">Loading your check-in…</p>
+            )}
 
-              <div>
-                <label htmlFor="custom-topic" className="block text-sm font-medium">
-                  Custom topic
-                </label>
-
-                <input
-                  id="custom-topic"
-                  name="custom-topic"
-                  type="text"
-                  placeholder="What did you draw?"
-                  className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
-                />
-              </div>
-
-              <fieldset>
-                <legend className="text-sm font-medium">Tools used</legend>
-
-                <div className="mt-2 flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" name="tools" value="pen" />
-                    Pen
-                  </label>
-
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" name="tools" value="pencil" />
-                    Pencil
-                  </label>
-
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" name="tools" value="digital" />
-                    Digital
-                  </label>
-                </div>
-              </fieldset>
-
-              <button
-                type="submit"
-                disabled
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Check-in!
-              </button>
-            </form>
+            {storageError && (
+              <p role="alert" className="mt-3 text-sm text-red-700">
+                {storageError}
+              </p>
+            )}
           </section>
         </section>
 
@@ -88,14 +99,31 @@ export default function Home() {
           aria-labelledby="recent-heading"
           className="rounded-xl border border-zinc-200 bg-white p-6"
         >
-          <h2 id="recent-heading" className="text-xl font-semibold">
+          <h2 id="recent-heading" className="text-sm font-medium text-zinc-500">
             Recent drawings
           </h2>
 
-          <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6">
-            <p className="text-zinc-600">No drawings recorded yet.</p>
+          <div aria-live="polite">
+            {entry ? (
+              <article className="mt-4 rounded-xl border border-zinc-200 p-6">
+                <p className="text-sm text-zinc-500">Today&apos;s check-in</p>
 
-            <p className="mt-1 text-sm text-zinc-500">Your saved entries will appear here.</p>
+                <h3 className="mt-2 text-lg font-semibold">
+                  {entry.followedPrompt ? "Draw a quiet street corner" : entry.customTopic}
+                </h3>
+
+                <p className="mt-2 text-sm text-zinc-600">
+                  Tools: {entry.tools.length > 0 ? entry.tools.join(", ") : "None selected"}
+                </p>
+
+                <p className="mt-3 text-sm text-green-700">Check-in saved for this session.</p>
+              </article>
+            ) : (
+              <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6">
+                <p className="text-zinc-600">No drawings recorded yet.</p>
+                <p className="mt-1 text-sm text-zinc-500">Your saved entries will appear here.</p>
+              </div>
+            )}
           </div>
         </section>
       </main>
