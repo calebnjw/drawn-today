@@ -60,7 +60,7 @@ export default function CheckInForm({ onSave }: CheckInFormProps) {
       {!followedPrompt && (
         <div>
           <label htmlFor="custom-topic" className="text-sm font-medium text-zinc-500">
-            Enter the custom topic:
+            What did I draw?
           </label>
 
           <input
@@ -70,7 +70,6 @@ export default function CheckInForm({ onSave }: CheckInFormProps) {
             required
             value={customTopic}
             onChange={(event) => setCustomTopic(event.target.value)}
-            placeholder="What did I draw?"
             className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
           />
         </div>
