@@ -1,28 +1,29 @@
-"use client";
-
 import { useState } from "react";
 
 export type DrawingEntry = {
+  date: string;
+  topic: string;
   followedPrompt: boolean;
-  customTopic: string;
   tools: string[];
 };
 
+export type DrawingEntryDraft = Omit<DrawingEntry, "date">;
+
 type CheckInFormProps = {
-  onSave: (entry: DrawingEntry) => void;
+  onSave: (entry: DrawingEntryDraft) => void;
+  isPromptLoaded: boolean;
+  prompt: string;
 };
 
-export default function CheckInForm({ onSave }: CheckInFormProps) {
+export default function CheckInForm({ onSave, isPromptLoaded, prompt }: CheckInFormProps) {
   const [followedPrompt, setFollowedPrompt] = useState(true);
-  const [customTopic, setCustomTopic] = useState("");
+  const [topic, setTopic] = useState<string>("");
   const [tools, setTools] = useState<string[]>([]);
 
-  const canSave = (followedPrompt || customTopic.trim().length > 0) && tools.length > 0;
+  const canSave = isPromptLoaded && (followedPrompt || topic.trim().length > 0) && tools.length > 0;
 
   function toggleTool(tool: string) {
     setTools((currentTools) => {
-      console.log("selected tools: ", [...tools]);
-
       if (currentTools.includes(tool)) {
         return currentTools.filter((item) => item !== tool);
       }
@@ -41,7 +42,7 @@ export default function CheckInForm({ onSave }: CheckInFormProps) {
 
         onSave({
           followedPrompt,
-          customTopic: followedPrompt ? "" : customTopic.trim(),
+          topic: followedPrompt ? prompt : topic.trim(),
           tools: [...tools],
         });
       }}
@@ -51,7 +52,10 @@ export default function CheckInForm({ onSave }: CheckInFormProps) {
           type="checkbox"
           name="followedPrompt"
           checked={followedPrompt}
-          onChange={(event) => setFollowedPrompt(event.target.checked)}
+          onChange={(event) => {
+            setFollowedPrompt(event.target.checked);
+            setTopic("");
+          }}
           className="h-4 w-4"
         />
         <span>I followed the prompt.</span>
@@ -64,12 +68,12 @@ export default function CheckInForm({ onSave }: CheckInFormProps) {
           </label>
 
           <input
-            id="custom-topic"
-            name="customTopic"
+            id="topic"
+            name="topic"
             type="text"
             required
-            value={customTopic}
-            onChange={(event) => setCustomTopic(event.target.value)}
+            value={topic}
+            onChange={(event) => setTopic(event.target.value)}
             className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2"
           />
         </div>

@@ -1,50 +1,103 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import CheckInForm, { type DrawingEntry } from "@/components/check-in-form";
+import CheckInForm, { type DrawingEntry, DrawingEntryDraft } from "@/components/check-in-form";
 
-const STORAGE_KEY = "drawn-today-entry";
+const STORAGE_KEY = "drawn-today-entries-v2";
+
+function isDrawingEntry(value: unknown): value is DrawingEntry {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  const entry = value as Record<string, unknown>;
+
+  return (
+    typeof entry.date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
+    typeof entry.followedPrompt === "boolean" &&
+    typeof entry.topic === "string" &&
+    Array.isArray(entry.tools) &&
+    entry.tools.every((tool: unknown) => typeof tool === "string")
+  );
+}
+
+function getLocalDate(): string {
+  const now = new Date();
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getNewPrompt(): string {
+  return "a house on stilts.";
+}
 
 export default function Home() {
-  const [entry, setEntry] = useState<DrawingEntry | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [isPromptLoaded, setIsPromptLoaded] = useState(false);
+  const [entries, setEntries] = useState<DrawingEntry[]>([]);
+  const [isEntriesLoaded, setIsEntriesLoaded] = useState(false);
+  const [promptError, setPromptError] = useState("");
   const [storageError, setStorageError] = useState("");
 
   useEffect(() => {
+    // load today's prompt. currently hardcoded, but to fetch from API or random word generator in the future.
     try {
-      const savedEntry = localStorage.getItem(STORAGE_KEY);
+      const newPrompt = getNewPrompt();
+      setPrompt(newPrompt);
+    } catch {
+      setPromptError("Failed to load today's prompt.");
+    } finally {
+      setIsPromptLoaded(true);
+    }
 
-      if (savedEntry) {
-        const parsedEntry = JSON.parse(savedEntry);
+    // load saved entries from local storage. filter out valid entries, and display error message if any entries were skipped.
+    try {
+      const savedEntries = localStorage.getItem(STORAGE_KEY);
 
-        if (
-          parsedEntry !== null &&
-          typeof parsedEntry === "object" &&
-          typeof parsedEntry.followedPrompt === "boolean" &&
-          typeof parsedEntry.customTopic === "string" &&
-          Array.isArray(parsedEntry.tools) &&
-          parsedEntry.tools.every((tool: unknown) => typeof tool === "string")
-        ) {
-          setEntry(parsedEntry);
-        } else {
-          setStorageError("The saved check-in could not be loaded.");
+      if (savedEntries !== null) {
+        const parsedEntries: unknown = JSON.parse(savedEntries);
+
+        if (Array.isArray(parsedEntries)) {
+          const validEntries = parsedEntries.filter(isDrawingEntry);
+          const skippedCount = parsedEntries.length - validEntries.length;
+          console.log(validEntries, skippedCount);
+
+          setEntries(validEntries);
+
+          if (skippedCount > 0) {
+            setStorageError(`Some saved check-ins could not be loaded.`);
+          }
         }
       }
     } catch {
-      setStorageError("The saved check-in could not be loaded.");
+      setStorageError("The saved check-ins could not be loaded.");
     } finally {
-      setIsLoaded(true);
+      setIsEntriesLoaded(true);
     }
   }, []);
 
-  function handleSave(nextEntry: DrawingEntry) {
-    setEntry(nextEntry);
+  function handleSave(draft: DrawingEntryDraft) {
+    if (!isEntriesLoaded) return;
+
+    const nextEntry: DrawingEntry = {
+      ...draft,
+      date: getLocalDate(),
+    };
+
+    const updatedEntries = [...entries.filter((entry) => entry.date !== nextEntry.date), nextEntry];
+
+    setEntries(updatedEntries);
 
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntry));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedEntries));
       setStorageError("");
     } catch {
-      setStorageError("Your check-in is visible, but could not be saved in this browser.");
+      setStorageError("Your check-in could not be saved.");
     }
   }
 
@@ -68,7 +121,15 @@ export default function Home() {
               Today&apos;s prompt
             </h2>
 
-            <p className="mt-3 text-3xl font-semibold">Draw a quiet street corner</p>
+            {promptError ? (
+              <p role="alert" className="mt-3 text-sm text-red-700">
+                {promptError}
+              </p>
+            ) : (
+              <p className="mt-3 text-3xl font-semibold">
+                {!isPromptLoaded ? "Loading prompt..." : `Draw ${prompt}`}
+              </p>
+            )}
           </section>
 
           {/* Check-in form goes here */}
@@ -80,17 +141,7 @@ export default function Home() {
               Record today&apos;s drawing
             </h2>
 
-            {isLoaded ? (
-              <CheckInForm onSave={handleSave} />
-            ) : (
-              <p className="mt-4 text-sm text-zinc-500">Loading your check-in…</p>
-            )}
-
-            {storageError && (
-              <p role="alert" className="mt-3 text-sm text-red-700">
-                {storageError}
-              </p>
-            )}
+            <CheckInForm isPromptLoaded={isPromptLoaded} prompt={prompt} onSave={handleSave} />
           </section>
         </section>
 
@@ -104,20 +155,29 @@ export default function Home() {
           </h2>
 
           <div aria-live="polite">
-            {entry ? (
-              <article className="mt-4 rounded-xl border border-zinc-200 p-6">
-                <p className="text-sm text-zinc-500">Today&apos;s check-in</p>
+            {storageError && (
+              <p role="alert" className="mt-3 text-sm text-red-700">
+                {storageError}
+              </p>
+            )}
+            {!isEntriesLoaded ? (
+              <p className="mt-4 text-sm text-zinc-500">Loading your check-in…</p>
+            ) : entries.length > 0 ? (
+              [...entries]
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((entry) => (
+                  <article key={entry.date} className="mt-4 rounded-xl border border-zinc-200 p-6">
+                    <time dateTime={entry.date} className="text-sm text-zinc-500">
+                      {entry.date}
+                    </time>
 
-                <h3 className="mt-2 text-lg font-semibold">
-                  {entry.followedPrompt ? "Draw a quiet street corner" : entry.customTopic}
-                </h3>
+                    <h3 className="mt-2 text-lg font-semibold">{entry.topic}</h3>
 
-                <p className="mt-2 text-sm text-zinc-600">
-                  Tools: {entry.tools.length > 0 ? entry.tools.join(", ") : "None selected"}
-                </p>
-
-                <p className="mt-3 text-sm text-green-700">Check-in saved for this session.</p>
-              </article>
+                    <p className="mt-2 text-sm text-zinc-600">
+                      Tools: {entry.tools.length > 0 ? entry.tools.join(", ") : "None selected"}
+                    </p>
+                  </article>
+                ))
             ) : (
               <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6">
                 <p className="text-zinc-600">No drawings recorded yet.</p>
