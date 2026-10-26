@@ -10,17 +10,26 @@ export type DrawingEntry = {
 export type DrawingEntryDraft = Omit<DrawingEntry, "date">;
 
 type CheckInFormProps = {
-  onSave: (entry: DrawingEntryDraft) => void;
+  canSaveEntries: boolean;
   isPromptLoaded: boolean;
   prompt: string;
+  onSave: (entry: DrawingEntryDraft) => void;
 };
 
-export default function CheckInForm({ onSave, isPromptLoaded, prompt }: CheckInFormProps) {
+export default function CheckInForm({
+  canSaveEntries,
+  onSave,
+  isPromptLoaded,
+  prompt,
+}: CheckInFormProps) {
   const [followedPrompt, setFollowedPrompt] = useState(true);
   const [topic, setTopic] = useState<string>("");
   const [tools, setTools] = useState<string[]>([]);
 
-  const canSave = isPromptLoaded && (followedPrompt || topic.trim().length > 0) && tools.length > 0;
+  const canSave =
+    canSaveEntries &&
+    tools.length > 0 &&
+    (followedPrompt ? isPromptLoaded && prompt.trim().length > 0 : topic.trim().length > 0);
 
   function toggleTool(tool: string) {
     setTools((currentTools) => {
@@ -63,7 +72,7 @@ export default function CheckInForm({ onSave, isPromptLoaded, prompt }: CheckInF
 
       {!followedPrompt && (
         <div>
-          <label htmlFor="custom-topic" className="text-sm font-medium text-zinc-500">
+          <label htmlFor="topic" className="text-sm font-medium text-zinc-500">
             What did I draw?
           </label>
 

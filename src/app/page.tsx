@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import CheckInForm, { type DrawingEntry, DrawingEntryDraft } from "@/components/check-in-form";
 
+type PromptHistory = Record<string, string>;
+
 const STORAGE_KEY = "drawn-today-entries-v2";
+const PROMPT_KEY = "drawn-today-prompt-v1";
 
 function isDrawingEntry(value: unknown): value is DrawingEntry {
   if (value === null || typeof value !== "object") {
@@ -22,6 +25,17 @@ function isDrawingEntry(value: unknown): value is DrawingEntry {
   );
 }
 
+function isPromptHistory(value: unknown): value is PromptHistory {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([date, prompt]) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof prompt === "string" && prompt.trim().length > 0,
+  );
+}
+
 function getLocalDate(): string {
   const now = new Date();
 
@@ -32,69 +46,146 @@ function getLocalDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+function loadOrCreatePrompt(today: string): string {
+  const rawHistory = localStorage.getItem(PROMPT_KEY);
+
+  const parsedHistory: unknown = rawHistory === null ? {} : JSON.parse(rawHistory);
+
+  if (!isPromptHistory(parsedHistory)) {
+    throw new Error("Invalid prompt history.");
+  }
+
+  const savedPrompt = parsedHistory[today];
+
+  if (savedPrompt !== undefined) {
+    return savedPrompt;
+  }
+
+  const newPrompt = getNewPrompt();
+
+  if (newPrompt.trim().length === 0) {
+    throw new Error("The generated prompt is empty.");
+  }
+
+  const updatedHistory: PromptHistory = {
+    ...parsedHistory,
+    [today]: newPrompt,
+  };
+
+  localStorage.setItem(PROMPT_KEY, JSON.stringify(updatedHistory));
+
+  return newPrompt;
+}
+
 function getNewPrompt(): string {
   return "a house on stilts.";
 }
 
 export default function Home() {
+  const [promptDate, setPromptDate] = useState("");
   const [prompt, setPrompt] = useState("");
   const [isPromptLoaded, setIsPromptLoaded] = useState(false);
   const [entries, setEntries] = useState<DrawingEntry[]>([]);
   const [isEntriesLoaded, setIsEntriesLoaded] = useState(false);
+  const [canSaveEntries, setCanSaveEntries] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [storageError, setStorageError] = useState("");
 
+  /* eslint-disable react-hooks/set-state-in-effect -- Initialize state from browser-only storage after hydration. */
   useEffect(() => {
-    // load today's prompt. currently hardcoded, but to fetch from API or random word generator in the future.
-    try {
-      const newPrompt = getNewPrompt();
-      setPrompt(newPrompt);
-    } catch {
-      setPromptError("Failed to load today's prompt.");
-    } finally {
-      setIsPromptLoaded(true);
+    function loadPrompt() {
+      const today = getLocalDate();
+
+      try {
+        const todaysPrompt = loadOrCreatePrompt(today);
+
+        lastLoadedDate = today;
+        setPrompt(todaysPrompt);
+        setPromptDate(today);
+        setPromptError("");
+      } catch {
+        setPrompt("");
+        setPromptDate("");
+        setPromptError("Failed to load today's prompt.");
+      } finally {
+        setIsPromptLoaded(true);
+      }
     }
 
+    let lastLoadedDate = "";
+    loadPrompt();
+
+    function checkDate() {
+      if (getLocalDate() !== lastLoadedDate) {
+        loadPrompt();
+      }
+    }
+
+    const intervalId = window.setInterval(checkDate, 60_000);
+
+    window.addEventListener("focus", checkDate);
+    document.addEventListener("visibilitychange", checkDate);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", checkDate);
+      document.removeEventListener("visibilitychange", checkDate);
+    };
+  }, []);
+
+  useEffect(() => {
     // load saved entries from local storage. filter out valid entries, and display error message if any entries were skipped.
     try {
-      const savedEntries = localStorage.getItem(STORAGE_KEY);
+      const rawEntries = localStorage.getItem(STORAGE_KEY);
+      const parsedEntries: unknown = rawEntries === null ? [] : JSON.parse(rawEntries);
 
-      if (savedEntries !== null) {
-        const parsedEntries: unknown = JSON.parse(savedEntries);
+      if (!Array.isArray(parsedEntries)) {
+        throw new Error("Invalid check-in history.");
+      }
 
-        if (Array.isArray(parsedEntries)) {
-          const validEntries = parsedEntries.filter(isDrawingEntry);
-          const skippedCount = parsedEntries.length - validEntries.length;
-          console.log(validEntries, skippedCount);
+      const validEntries = parsedEntries.filter(isDrawingEntry);
+      const skippedCount = parsedEntries.length - validEntries.length;
+      setEntries(validEntries);
 
-          setEntries(validEntries);
-
-          if (skippedCount > 0) {
-            setStorageError(`Some saved check-ins could not be loaded.`);
-          }
-        }
+      if (skippedCount > 0) {
+        setCanSaveEntries(false);
+        setStorageError(
+          "Some saved check-ins are invalid. Saving is disabled to preserve the original history.",
+        );
+      } else {
+        setCanSaveEntries(true);
+        setStorageError("");
       }
     } catch {
+      setCanSaveEntries(false);
       setStorageError("The saved check-ins could not be loaded.");
     } finally {
       setIsEntriesLoaded(true);
     }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function handleSave(draft: DrawingEntryDraft) {
+    const today = getLocalDate();
+
+    if (!canSaveEntries) return;
     if (!isEntriesLoaded) return;
+
+    if (draft.followedPrompt && promptDate !== today) {
+      setPromptError("The date changed. Refresh today's prompt before saving.");
+      return;
+    }
 
     const nextEntry: DrawingEntry = {
       ...draft,
-      date: getLocalDate(),
+      date: today,
     };
 
     const updatedEntries = [...entries.filter((entry) => entry.date !== nextEntry.date), nextEntry];
 
-    setEntries(updatedEntries);
-
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedEntries));
+      setEntries(updatedEntries);
       setStorageError("");
     } catch {
       setStorageError("Your check-in could not be saved.");
@@ -106,8 +197,8 @@ export default function Home() {
       <main className="mx-auto max-w-3xl space-y-8 px-6 py-12">
         <header>
           <h1 className="text-sm">
-            <span className="font-bold tracking-tight">Drawn Today</span> | caleb's daily drawing
-            check-ins.
+            <span className="font-bold tracking-tight">Drawn Today</span> | caleb&apos;s daily
+            drawing check-ins.
           </h1>
         </header>
 
@@ -141,7 +232,12 @@ export default function Home() {
               Record today&apos;s drawing
             </h2>
 
-            <CheckInForm isPromptLoaded={isPromptLoaded} prompt={prompt} onSave={handleSave} />
+            <CheckInForm
+              canSaveEntries={canSaveEntries}
+              isPromptLoaded={isPromptLoaded}
+              prompt={prompt}
+              onSave={handleSave}
+            />
           </section>
         </section>
 
